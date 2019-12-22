@@ -71,7 +71,13 @@ exec(char *path, char **argv)
   uvmclear(pagetable, sz-2*PGSIZE);
   sp = sz;
   stackbase = sp - PGSIZE;
-
+  p->stack_top = stackbase;  //设置用户栈栈顶，一旦below stack_top，则user_trap()捕获越界访问内存
+  //user stack结构如下：
+  /*
+    保护(page1)
+    栈顶(stackbase,page2)
+    栈低(sp,page2)
+  */
   // Push argument strings, prepare rest of stack in ustack.
   for(argc = 0; argv[argc]; argc++) {
     if(argc >= MAXARG)
@@ -112,6 +118,7 @@ exec(char *path, char **argv)
   p->tf->epc = elf.entry;  // initial program counter = main
   p->tf->sp = sp; // initial stack pointer
   proc_freepagetable(oldpagetable, oldsz);
+  vmprint(pagetable);  // 添加，以打印页表
   return argc; // this ends up in a0, the first argument to main(argc, argv)
 
  bad:

@@ -262,7 +262,7 @@ fork(void)
     return -1;
   }
   np->sz = p->sz;
-
+  np->stack_top = p->stack_top;  //新建的进程复制父进程的用户栈栈顶指针
   np->parent = p;
 
   // copy saved user registers.

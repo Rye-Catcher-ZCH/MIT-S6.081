@@ -96,6 +96,7 @@ struct proc {
 
   // these are private to the process, so p->lock need not be held.
   uint64 kstack;               // Bottom of kernel stack for this process
+  uint64 stack_top;            // Top of kernel stack, in order to do the user_trap(),also need to change fork and exec
   uint64 sz;                   // Size of process memory (bytes)
   pagetable_t pagetable;       // Page table
   struct trapframe *tf;        // data page for trampoline.S

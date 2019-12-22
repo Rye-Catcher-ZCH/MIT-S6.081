@@ -38,17 +38,43 @@ sys_wait(void)
   return wait(p);
 }
 
+/*
 uint64
 sys_sbrk(void)
 {
-  int addr;
-  int n;
+    int addr;
+    int n;
 
+    if (argint(0, &n) < 0)
+        return -1;
+    addr = myproc()->sz;  //获得旧的大小
+    // if(growproc(n) < 0)
+    //  return -1;
+
+    myproc()->sz += n;  //进程大小增加n
+    if (n < 0)  //sbrk()输入参数为负数时，进程归还大小为n的线性地址空间。通过uvmdealloc释放。
+        uvmdealloc(myproc()->pagetable, addr, myproc()->sz);  //addr释放前地址，myproc->sz释放后地址
+    return addr;
+}
+*/
+
+uint64
+sys_sbrk(void)
+{
+  uint64 addr;
+  int n;
+  struct proc *p = myproc();
   if(argint(0, &n) < 0)
     return -1;
-  addr = myproc()->sz;
-  if(growproc(n) < 0)
+  addr = p->sz;
+  if(addr + n > MAXVA)
     return -1;
+  // if(growproc(n) < 0)
+  //   return -1;
+  if(n < 0){
+    uvmdealloc(p->pagetable, addr, addr + n);
+  }
+  p->sz = addr + n;
   return addr;
 }
 
