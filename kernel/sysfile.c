@@ -483,3 +483,18 @@ sys_pipe(void)
   return 0;
 }
 
+uint64
+sys_mmap(void)
+{
+  printf("error!\n");
+  return -1;
+}
+
+
+uint64
+sys_munmap(void)
+{
+  printf("error!\n");
+  return -1;
+}
+

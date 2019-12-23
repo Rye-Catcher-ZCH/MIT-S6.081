@@ -37,3 +37,5 @@ entry("sbrk");
 entry("sleep");
 entry("uptime");
 entry("ntas");
+entry("mmap");  # add remember use #!!!
+entry("munmap"); # add 

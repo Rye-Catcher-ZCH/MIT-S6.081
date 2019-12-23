@@ -12,3 +12,10 @@
 #define FSSIZE       2000  // size of file system in blocks
 #define MAXPATH      128   // maximum file path name
 #define NDISK        2
+
+
+/*mmap映射权限标志位*/  //must be here?
+#define PROT_READ    1
+#define PROT_WRITE   2
+#define MAP_PRIVATE  1
+#define MAP_SHARED   0
