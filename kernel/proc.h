@@ -1,5 +1,6 @@
 // Saved registers for kernel context switches.
-struct context {
+struct context
+{
   uint64 ra;
   uint64 sp;
 
@@ -19,11 +20,12 @@ struct context {
 };
 
 // Per-CPU state.
-struct cpu {
-  struct proc *proc;          // The process running on this cpu, or null.
-  struct context scheduler;   // swtch() here to enter scheduler().
-  int noff;                   // Depth of push_off() nesting.
-  int intena;                 // Were interrupts enabled before push_off()?
+struct cpu
+{
+  struct proc *proc;        // The process running on this cpu, or null.
+  struct context scheduler; // swtch() here to enter scheduler().
+  int noff;                 // Depth of push_off() nesting.
+  int intena;               // Were interrupts enabled before push_off()?
 };
 
 extern struct cpu cpus[NCPU];
@@ -41,7 +43,8 @@ extern struct cpu cpus[NCPU];
 // the trapframe includes callee-saved user registers like s0-s11 because the
 // return-to-user path via usertrapret() doesn't return through
 // the entire kernel call stack.
-struct trapframe {
+struct trapframe
+{
   /*   0 */ uint64 kernel_satp;   // kernel page table
   /*   8 */ uint64 kernel_sp;     // top of process's kernel stack
   /*  16 */ uint64 kernel_trap;   // usertrap()
@@ -80,27 +83,57 @@ struct trapframe {
   /* 280 */ uint64 t6;
 };
 
-enum procstate { UNUSED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
+enum procstate
+{
+  UNUSED,
+  SLEEPING,
+  RUNNABLE,
+  RUNNING,
+  ZOMBIE
+};
+
+/*
+ref. hint3:Define a structure corresponding to the VMA (virtual memory area) described in Lecture 15, recording the address, length, permissions, file, etc.
+ref. https://blog.csdn.net/qq_33611327/article/details/81738195#mmap%E5%9F%BA%E7%A1%80%E6%A6%82%E5%BF%B5
+*/
+struct mfile
+{
+  struct file *f;
+  void *start;
+  void *end;
+  int prot;  
+  int flags;
+  uint64 off;
+};
+
+//ref. hint3:it's OK to declare a fixed-size array of VMAs and allocate from that array as needed.
+//Linx一般采用链表的方式，这里采用数组
+struct vm_area_struct
+{
+  struct mfile mfiles[NOFILE];  //#define NOFILE       16  // open files per process，定义在param.h中
+};
 
 // Per-process state
-struct proc {
+struct proc
+{
   struct spinlock lock;
 
   // p->lock must be held when using these:
-  enum procstate state;        // Process state
-  struct proc *parent;         // Parent process
-  void *chan;                  // If non-zero, sleeping on chan
-  int killed;                  // If non-zero, have been killed
-  int xstate;                  // Exit status to be returned to parent's wait
-  int pid;                     // Process ID
+  enum procstate state; // Process state
+  struct proc *parent;  // Parent process
+  void *chan;           // If non-zero, sleeping on chan
+  int killed;           // If non-zero, have been killed
+  int xstate;           // Exit status to be returned to parent's wait
+  int pid;              // Process ID
 
   // these are private to the process, so p->lock need not be held.
-  uint64 kstack;               // Virtual address of kernel stack
-  uint64 sz;                   // Size of process memory (bytes)
-  pagetable_t pagetable;       // Page table
-  struct trapframe *tf;        // data page for trampoline.S
-  struct context context;      // swtch() here to run process
-  struct file *ofile[NOFILE];  // Open files
-  struct inode *cwd;           // Current directory
-  char name[16];               // Process name (debugging)
+  uint64 kstack;              // Virtual address of kernel stack
+  uint64 sz;                  // Size of process memory (bytes)
+  pagetable_t pagetable;      // Page table
+  struct trapframe *tf;       // data page for trampoline.S
+  struct context context;     // swtch() here to run process
+  struct file *ofile[NOFILE]; // Open files
+  struct inode *cwd;          // Current directory
+  struct vm_area_struct man;
+  char name[16]; // Process name (debugging)
 };
