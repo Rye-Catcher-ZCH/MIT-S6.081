@@ -283,70 +283,115 @@ create(char *path, short type, short major, short minor)
   return ip;
 }
 
+
+
 uint64
 sys_open(void)
 {
-  char path[MAXPATH];
-  int fd, omode;
-  struct file *f;
-  struct inode *ip;
-  int n;
+    char path[MAXPATH]; //打开的文件路径
+    int fd, omode;      //open的模式，标志位定义在fcntl.h中
+    struct file *f;
+    struct inode *ip;
+    int n;
+    int depth = 0; //记录sym link链接深度，防止cycle
 
-  if((n = argstr(0, path, MAXPATH)) < 0 || argint(1, &omode) < 0)
-    return -1;
+    //获取第n个string型的参数和第n个int型的参数,定义在syscall.c中
+    if ((n = argstr(0, path, MAXPATH)) < 0 || argint(1, &omode) < 0)
+        return -1;
 
-  begin_op(ROOTDEV);
+    begin_op(ROOTDEV);
 
-  if(omode & O_CREATE){
-    ip = create(path, T_FILE, 0, 0);
-    if(ip == 0){
-      end_op(ROOTDEV);
-      return -1;
+    //创建新文件
+    if (omode & O_CREATE)
+    {
+        ip = create(path, T_FILE, 0, 0);
+        if (ip == 0)
+        {
+            end_op(ROOTDEV);
+            return -1;
+        }
     }
-  } else {
-    if((ip = namei(path)) == 0){
-      end_op(ROOTDEV);
-      return -1;
+    else
+    {
+    LOOP:
+        // ref. xv6_book 86 Namei (kernel/fs.c:665) evaluates path and returns the corresponding inode.
+        // 返回文件名对应的inode
+        if ((ip = namei(path)) == 0)
+        {
+            end_op(ROOTDEV);
+            return -1;
+        }
+        ilock(ip);
+        if (ip->type == T_DIR && omode != O_RDONLY)
+        {
+            iunlockput(ip);
+            end_op(ROOTDEV);
+            return -1;
+        }
     }
-    ilock(ip);
-    if(ip->type == T_DIR && omode != O_RDONLY){
-      iunlockput(ip);
-      end_op(ROOTDEV);
-      return -1;
-    }
-  }
 
-  if(ip->type == T_DEVICE && (ip->major < 0 || ip->major >= NDEV)){
-    iunlockput(ip);
+    //fddevice设备号小于0或大于NDEV
+    if (ip->type == T_DEVICE && (ip->major < 0 || ip->major >= NDEV))
+    {
+        iunlockput(ip);
+        end_op(ROOTDEV);
+        return -1;
+    }
+    //添加symbolic link的分支
+    //如果是T_SYMLINK并且需要follow(递归寻找)？
+    //如果O_NOFOLLOW被设定，则直接打开文件，否则继续follow？
+    //follow 消除循环，不再follow，直接open foo,https://blog.csdn.net/u011068464/article/details/10518583
+    if(ip->type == T_SYMLINK && !(omode & O_NOFOLLOW))
+    {
+        // printf("current file:%s\n",path);
+        for (int i = 0; i < MAXPATH; i++)
+            path[i] = 0;
+        //读取ip inode中的内容到path，这是一个sym link
+        readi(ip, 0, (uint64)path, 0, MAXPATH);
+        // printf("target file:%s\n",path);
+        iunlock(ip);
+        iput(ip);
+        if (depth > 10)
+        {
+            printf("open:link depth beyond %d\n", depth);
+            end_op(ROOTDEV);
+            return -1;
+        }
+        depth++;
+        goto LOOP; //继续判断。     
+    }
+
+    if ((f = filealloc()) == 0 || (fd = fdalloc(f)) < 0)
+    {
+        if (f)
+            fileclose(f);
+        iunlockput(ip);
+        end_op(ROOTDEV);
+        return -1;
+    }
+
+    if (ip->type == T_DEVICE)
+    {
+        f->type = FD_DEVICE;
+        f->major = ip->major;
+        f->minor = ip->minor;
+    }
+    else
+    {
+        f->type = FD_INODE;
+    }
+    f->ip = ip;
+    f->off = 0;
+    f->readable = !(omode & O_WRONLY);
+    f->writable = (omode & O_WRONLY) || (omode & O_RDWR);
+
+    iunlock(ip);
     end_op(ROOTDEV);
-    return -1;
-  }
 
-  if((f = filealloc()) == 0 || (fd = fdalloc(f)) < 0){
-    if(f)
-      fileclose(f);
-    iunlockput(ip);
-    end_op(ROOTDEV);
-    return -1;
-  }
-
-  if(ip->type == T_DEVICE){
-    f->type = FD_DEVICE;
-    f->major = ip->major;
-    f->minor = ip->minor;
-  } else {
-    f->type = FD_INODE;
-  }
-  f->ip = ip;
-  f->off = 0;
-  f->readable = !(omode & O_WRONLY);
-  f->writable = (omode & O_WRONLY) || (omode & O_RDWR);
-
-  iunlock(ip);
-  end_op(ROOTDEV);
-
-  return fd;
+    return fd;
 }
+
+
 
 uint64
 sys_mkdir(void)
@@ -483,3 +528,68 @@ sys_pipe(void)
   return 0;
 }
 
+
+uint64
+sys_symlink(void)
+
+{
+    //sys_symlink类似于windows的快捷方式，会创建一个新的inode来存储目标文件的文件路径
+    char path[MAXPATH];
+    char target[MAXPATH];
+    struct inode *ip;
+
+    // steal the code from sys_link
+    // 提取第n个syscall的参数，将其作为末尾含有'\0'的字符串读入到最大为MAXPATH的缓冲区(target, path)中
+    // 成功返回字符串长度，否则返回-1
+    // argstr函数定义在syacall.c中
+    if (argstr(0, target, MAXPATH) < 0 || argstr(1, path, MAXPATH) < 0)
+        return -1;
+
+    // ROOTDEV:device number of file system root disk，定义在param.h中
+    // ref. xv6_book page 80
+    // begin_op:(kernel/log.c:126) waits until the logging system is not currently committing, and
+    // until there is enough unreserved log space to hold the writes from this call.
+    begin_op(ROOTDEV);
+
+    // create()定义在sysfile.c中，
+    // ref. xv6_book page 88: The function create (kernel/sysfile.c:242) creates a new name for a new inode.
+    // 它是对三个文件创建系统调用的概括：使用O_CREATE标志打开会创建一个新的普通文件，mkdir会创建一个新目录，mkdev会创建一个新的设备文件。
+    // 现在创建一个新inode ip，它是一个symbolic link
+    ip = create(path, T_SYMLINK, 0, 0);
+    if (ip == 0) //创建失败
+    {
+        end_op(ROOTDEV);
+        return -1;
+    }
+
+    /*
+    ref. xv6_book pages 83
+    Code must lock the inode using ilock before reading or writing its metadata or content. Ilock
+    (kernel/fs.c:290) uses a sleep-lock for this purpose. Once ilock has exclusive access to the inode,
+    it reads the inode from disk (more likely, the buffer cache) if needed. The function iunlock
+    (kernel/fs.c:318) releases the sleep-lock, which may cause any processes sleeping to be woken up
+    */
+    //ilock(ip);  //if lock here may be caused deadlock
+
+    //向inode中写入数据，写入的数据是target的文件路径，最大为MAXPATH
+    if (writei(ip, 0, (uint64)target, 0, MAXPATH) < 0)  //writei()定义在fs.c中
+    {
+        printf("sym_link:error on writing\n");
+        iunlock(ip);
+
+        /*
+        Iput (kernel/fs.c:334) releases a C pointer to an inode by decrementing the reference count (kernel/fs.c:357). 
+        If this is the last reference, the inode’s slot in the inode cache is now free and can be re-used for a different inode.
+        ref. xv6_book page 83
+        */
+        iput(ip); //释放ip指针,iput和iunlock定义在fs.c中
+        end_op(ROOTDEV);
+        return -1;
+    }
+
+    iunlock(ip);
+    iput(ip);
+    end_op(ROOTDEV);
+
+    return 0;
+}
