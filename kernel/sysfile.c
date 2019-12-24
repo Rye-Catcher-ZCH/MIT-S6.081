@@ -518,8 +518,7 @@ sys_pipe(void)
     return 0;
 }
 
-#define i2a(x) (((x) << PGSHIFT) + PHYSTOP)
-#define a2i(x) ((((uint64)x) - PHYSTOP) >> PGSHIFT)
+
 
 /*void *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset);*/
 uint64
@@ -527,7 +526,7 @@ sys_mmap(void)
 {
 
     uint64 length;
-    int prot;   //记录标志位。ref. Lab9 prot indicates whether the memory should be mapped readable, writeable, and/or executable; you can assume that prot is PROT_READ or PROT_WRITE or both.
+    int prot = 0;   //记录标志位。ref. Lab9 prot indicates whether the memory should be mapped readable, writeable, and/or executable; you can assume that prot is PROT_READ or PROT_WRITE or both.
     int flags;  //记录在映射内存中的修改是否应该被写回文件。shared写回，private不写回
     int fd;     //文件描述符
     uint64 off; //文件中的偏移地址
@@ -544,6 +543,8 @@ sys_mmap(void)
         printf("sys_mmap:load argument failed\n");
         return -1;
     }
+    //printf("the flags = %x\n",flags);
+    //printf("the prot = %x\n",prot);
 
     p = myproc();    //取得当前进程
     man = &(p->man); //取得当前进程的vm_area_struct管理器。因为man是静态分配的，所以如果man不满则可以继续映射，否则，不行。
@@ -578,6 +579,7 @@ sys_mmap(void)
         return -1;
     }
 
+    /*
     if (prot & PROT_READ) //只读
     {
         if (f->readable == 0)
@@ -585,9 +587,10 @@ sys_mmap(void)
             printf("sys_mmap:file not readable\n");
             return -1;
         }
-    }
-
-    if (prot & PROT_WRITE && (flags == MAP_SHARED))
+    }*/
+    //printf("prot = %x\n",prot);
+    //printf("flags = %x\n",flags);
+    if ((prot & PROT_WRITE) && (flags == MAP_SHARED))
     {
         if (f->writable == 0)
         {
@@ -612,16 +615,6 @@ sys_mmap(void)
 
 
 
-uint64
-sys_writeback(struct inode *ip, int user_src, uint64 src, uint off, uint n)
-{
-    begin_op(ip->dev);                                      //ip为文件的inode，dev为设备号
-    ilock(ip);                                              //写之前锁定inode
-    writei(ip, 1, user_src, src, n); //writei()第2个参数，1为虚拟地址，0为物理地址
-    iunlock(ip);
-    end_op(ip->dev);
-    return 0;
-}
 
 uint64
 sys_munmap()
@@ -640,17 +633,22 @@ sys_munmap()
     {
         if (p->man.mfiles[i].f) //如果该位置的mfiles[i被使用]
         {
-            mfile = &(p->man.mfiles[i]);                                                 //取得myfiles结构体
+            mfile = &(p->man.mfiles[i]);                             //取得myfiles结构体
             if (addr <= mfile->start && addr + length >= mfile->end) //unmap范围是否完全覆盖
             {
                 if ((mfile->flags & MAP_SHARED) && (mfile->prot & PROT_WRITE))
                 {
                     //write back
-                    sys_writeback(mfile->f->ip, 1, mfile->start, mfile->off, mfile->end-mfile->start); //writei()第2个参数，1为虚拟地址，0为物理地址
-                }
-                uvmunmap(p->pagetable, mfile->start, (mfile->end-mfile->start), 1); //vm.c中
+                    
+                    begin_op(mfile->f->ip->dev);
+                    ilock(mfile->f->ip);                                                          //ip为文件的inode，dev为设备号                                                                      //写之前锁定inode
+                    writei(mfile->f->ip, 1, mfile->start, mfile->off, mfile->end - mfile->start); //writei()第2个参数，1为虚拟地址，0为物理地址
+                    iunlock(mfile->f->ip);
+                    end_op(mfile->f->ip->dev);
 
-                fileundup(mfile->f);   //undup,f->ref-1
+                }
+                uvmunmap(p->pagetable, mfile->start, (mfile->end - mfile->start), 1); //vm.c中
+                fileundup(mfile->f);                                                  //undup,f->ref-1
                 //这里是不是可以free一下?
                 mfile->f = 0; //指针清零
                 return 0;
@@ -661,12 +659,18 @@ sys_munmap()
                 if ((mfile->flags & MAP_SHARED) && (mfile->prot & PROT_WRITE))
                 {
                     //write back
-                    sys_writeback(mfile->f->ip, 1, mfile->start, mfile->off, addr + length - mfile->start);
+                    
+                    begin_op(mfile->f->ip->dev);
+                    ilock(mfile->f->ip);                                                          //ip为文件的inode，dev为设备号                                                                      //写之前锁定inode
+                    writei(mfile->f->ip, 1, mfile->start, mfile->off, mfile->end - mfile->start); //writei()第2个参数，1为虚拟地址，0为物理地址
+                    iunlock(mfile->f->ip);
+                    end_op(mfile->f->ip->dev);
+
                 }
                 uint64 shiftup = addr + length - mfile->start; //被unmap的部分区间长度
                 uvmunmap(p->pagetable, (uint64)mfile->start, shiftup, 1);
-                mfile->off += shiftup;    //文件没有完全unmap，修改文件的偏移地址到已释放部分
-                mfile->start += shiftup;  //文件起始位置改变
+                mfile->off += shiftup;   //文件没有完全unmap，修改文件的偏移地址到已释放部分
+                mfile->start += shiftup; //文件起始位置改变
                 //mfile->length -= shiftup; //文件总长度减少
                 return 0;
             }
@@ -676,7 +680,13 @@ sys_munmap()
                 if ((mfile->flags & MAP_SHARED) && (mfile->prot & PROT_WRITE))
                 {
                     //write back
-                    sys_writeback(mfile->f->ip, 1, addr, mfile->off, mfile->end);
+                    
+                    begin_op(mfile->f->ip->dev);
+                    ilock(mfile->f->ip);                                                          //ip为文件的inode，dev为设备号                                                                      //写之前锁定inode
+                    writei(mfile->f->ip, 1, mfile->start, mfile->off, mfile->end - mfile->start); //writei()第2个参数，1为虚拟地址，0为物理地址
+                    iunlock(mfile->f->ip);
+                    end_op(mfile->f->ip->dev);
+
                 }
                 uvmunmap(p->pagetable, addr, mfile->end, 1);
                 //mfile->length -= mfile->start + mfile->length - addr;  //修改文件长度

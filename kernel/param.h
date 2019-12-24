@@ -15,7 +15,7 @@
 
 
 /*mmap映射权限标志位*/  //must be here?
-#define PROT_READ    1
-#define PROT_WRITE   2
-#define MAP_PRIVATE  1
-#define MAP_SHARED   0
+#define PROT_READ    0x01
+#define PROT_WRITE   0x010
+#define MAP_PRIVATE  0x0100
+#define MAP_SHARED   0x01000

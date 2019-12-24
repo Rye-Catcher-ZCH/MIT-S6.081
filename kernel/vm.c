@@ -177,34 +177,40 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
 // Remove mappings from a page table. The mappings in
 // the given range must exist. Optionally free the
 // physical memory.
-void
-uvmunmap(pagetable_t pagetable, uint64 va, uint64 size, int do_free)
+void uvmunmap(pagetable_t pagetable, uint64 va, uint64 size, int do_free)  //change
 {
-  uint64 a, last;
-  pte_t *pte;
-  uint64 pa;
+    uint64 a, last;
+    pte_t *pte;
+    uint64 pa;
 
-  a = PGROUNDDOWN(va);
-  last = PGROUNDDOWN(va + size - 1);
-  for(;;){
-    if((pte = walk(pagetable, a, 0)) == 0)
-      panic("uvmunmap: walk");
-    if((*pte & PTE_V) == 0){
-      printf("va=%p pte=%p\n", a, *pte);
-      panic("uvmunmap: not mapped");
+    a = PGROUNDDOWN(va);
+    last = PGROUNDDOWN(va + size - 1);
+    for (;;)
+    {
+        if ((pte = walk(pagetable, a, 0)) == 0)
+            goto CONTINUE;
+        //panic("uvmunmap: walk");
+
+        if ((*pte & PTE_V) == 0)
+        {
+            //printf("va=%p pte=%p\n", a, *pte);
+            goto CONTINUE;
+            //panic("uvmunmap: not mapped");
+        }
+        if (PTE_FLAGS(*pte) == PTE_V)
+            panic("uvmunmap: not a leaf");
+        if (do_free)
+        {
+            pa = PTE2PA(*pte);
+            kfree((void *)pa);
+        }
+        *pte = 0;
+   CONTINUE:
+        if (a == last)
+            break;
+        a += PGSIZE;
+        pa += PGSIZE;
     }
-    if(PTE_FLAGS(*pte) == PTE_V)
-      panic("uvmunmap: not a leaf");
-    if(do_free){
-      pa = PTE2PA(*pte);
-      kfree((void*)pa);
-    }
-    *pte = 0;
-    if(a == last)
-      break;
-    a += PGSIZE;
-    pa += PGSIZE;
-  }
 }
 
 // create an empty user page table.
@@ -316,34 +322,39 @@ uvmfree(pagetable_t pagetable, uint64 sz)
 // physical memory.
 // returns 0 on success, -1 on failure.
 // frees any allocated pages on failure.
-int
-uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
+int uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
 {
-  pte_t *pte;
-  uint64 pa, i;
-  uint flags;
-  char *mem;
+    pte_t *pte;
+    uint64 pa, i;
+    uint flags;
+    char *mem;
 
-  for(i = 0; i < sz; i += PGSIZE){
-    if((pte = walk(old, i, 0)) == 0)
-      panic("uvmcopy: pte should exist");
-    if((*pte & PTE_V) == 0)
-      panic("uvmcopy: page not present");
-    pa = PTE2PA(*pte);
-    flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
-      goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
-      goto err;
+    for (i = 0; i < sz; i += PGSIZE)
+    {
+        if ((pte = walk(old, i, 0)) == 0)  //walk定义在上面，在页表old中返回与虚拟地址i对应的PTE地址。如果alloc=0，不创建任何必需的页表页。
+            //panic("uvmcopy: pte should exist");
+            continue;  //如果当前没有返回对应的物理地址，则判断下一项
+            //break;  //otherwise the kill and wait failed?
+        if ((*pte & PTE_V) == 0)
+            //panic("uvmcopy: page not present");
+            continue;  //如果当前页表项无效(不在内存中)，PTE_V=0，则判断下一项
+            //break;
+        pa = PTE2PA(*pte); //找到旧页表项的物理地址
+        flags = PTE_FLAGS(*pte);
+        if ((mem = kalloc()) == 0)  //分配页面失败
+            goto err;
+        memmove(mem, (char *)pa, PGSIZE);  //将就页表项复制到mem中
+        if (mappages(new, i, PGSIZE, (uint64)mem, flags) != 0)  //如果建立页表逻辑地址与物理地址映射失败
+        {
+            kfree(mem);
+            goto err;
+        }
     }
-  }
-  return 0;
+    return 0;
 
- err:
-  uvmunmap(new, 0, i, 1);
-  return -1;
+err:
+    uvmunmap(new, 0, i, 1);
+    return -1;
 }
 
 // mark a PTE invalid for user access.

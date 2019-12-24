@@ -84,8 +84,15 @@ void usertrap(void)
         int pte_flag;
         uint64 offset;
         int i;
+        
+        //非法访问内存(访问内存中空白的虚拟内存)，退出
+        if(fault_vaddr >= p->sz)
+        {
+            printf("usertrap():非法访问空白的虚拟内存空间\n");
+        }
 
         //判断是否重复分配页表
+        
         tmp = walkaddr(myproc()->pagetable, fault_vaddr); //页表项已被分配
         if (tmp)
         {
@@ -118,12 +125,14 @@ void usertrap(void)
             exit(-1);
         }
 
-        /*设置页表项标志位*/
+        /*根据内存可读、可写标志位设置页表项标志位*/
         //PTE_U controls whether instructions in user mode are allowed to access the page
         //ref. xv6_book page 30
-        pte_flag = PTE_U;
+        pte_flag = PTE_U;  //页表一定用户可使用。
+        //页表项可读
         if ((man->mfiles[i].prot | man->mfiles[i].flags) & PROT_READ)
             pte_flag |= PTE_R; //映射到的页表项的标志位
+        //页表项可写
         if ((man->mfiles[i].prot | man->mfiles[i].flags) & PROT_WRITE)
             pte_flag |= PTE_W;
 
@@ -138,7 +147,8 @@ void usertrap(void)
         }
 
         /*计算偏移*/
-        offset = fault_vaddr - (uint64)man->mfiles[i].start;  //线性地址
+        //当前缺页的偏移是文件本来的偏移man->mfiles[i].off加上缺页的地址到map起始地址map.start的偏移
+        offset = (fault_page - (uint64)man->mfiles[i].start) + man->mfiles[i].off;  
 
         /*重新读取文件内容*/
         readi(man->mfiles[i].f->ip, 1, fault_vaddr, offset, PGSIZE); //重新读取
