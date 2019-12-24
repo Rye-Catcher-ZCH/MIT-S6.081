@@ -75,7 +75,7 @@ void usertrap(void)
     }
     else if (r_scause() == 13 || r_scause() == 15)
     {
-        panic("here");
+        //panic("here");
         /*lazy alloc, just like the Lab 4, change the myproc to vm_area_struct*/
         uint64 fault_vaddr = (uint64)r_stval(); //取得分配错误的虚拟地址
         uint64 *mem;  
