@@ -385,12 +385,13 @@ int bd_mark_unavailable(void *end, void *left)
     printf("bd: 0x%x bytes unavailable\n", unavailable);
 
     void *bd_end = bd_base + BLK_SIZE(MAXSIZE) - unavailable;
-    bd_mark(bd_end, bd_base + BLK_SIZE(MAXSIZE));
-    return unavailable;
+    bd_mark(bd_end, bd_base + BLK_SIZE(MAXSIZE));  //标记为已分配，都已表示为LEAF_SIZE的倍数
+    return unavailable;  //表示为LEAF_SIZE的倍数
 }
 
 // Initialize the buddy allocator: it manages memory from [base, end).
 // 初始化伙伴分配器，管理的地址空间是base到end
+// base和end还没有变为LEAF_SIZE的倍数
 void bd_init(void *base, void *end)
 {
     char *p = (char *)ROUNDUP((uint64)base, LEAF_SIZE); //将base变为LEAF_SIZE的倍数
