@@ -602,7 +602,7 @@ sys_mmap(void)
     man->mfiles[i].f = f;
     man->mfiles[i].prot = prot;
     man->mfiles[i].flags = flags;
-    man->mfiles[i].start = (void*)p->sz;   //起始虚拟地址，为tail*PGSIZE+PHYSTOP，此时的尾部是上一次的尾部                           //尾部+len*PGSIZE
+    man->mfiles[i].start = (uint64)p->sz;   //起始虚拟地址，为tail*PGSIZE+PHYSTOP，此时的尾部是上一次的尾部                           //尾部+len*PGSIZE
     man->mfiles[i].end = man->mfiles[i].start + length; //end = 起始地址+len*PGSIZE
     man->mfiles[i].off = off;
     filedup(f);                 //ref. mmap should increase the file's reference count so that the structure doesn't disappear when the file is closed (hint: see filedup).
@@ -610,9 +610,79 @@ sys_mmap(void)
     return addr; //文件映射的虚拟地址
 }
 
+
+
 uint64
-sys_munmap(void)
+sys_writeback(struct inode *ip, int user_src, uint64 src, uint off, uint n)
 {
-    printf("error!\n");
+    begin_op(ip->dev);                                      //ip为文件的inode，dev为设备号
+    ilock(ip);                                              //写之前锁定inode
+    writei(ip, 1, user_src, src, n); //writei()第2个参数，1为虚拟地址，0为物理地址
+    iunlock(ip);
+    end_op(ip->dev);
+    return 0;
+}
+
+uint64
+sys_munmap()
+{
+    uint64 addr;
+    int length;
+    struct proc *p;
+    struct mfile *mfile;
+
+    //获取参数
+    argaddr(0, &addr);
+    argint(1, &length);
+
+    p = myproc();
+    for (int i = 0; i < NOFILE; i++)
+    {
+        if (p->man.mfiles[i].f) //如果该位置的mfiles[i被使用]
+        {
+            mfile = &(p->man.mfiles[i]);                                                 //取得myfiles结构体
+            if (addr <= mfile->start && addr + length >= mfile->end) //unmap范围是否完全覆盖
+            {
+                if ((mfile->flags & MAP_SHARED) && (mfile->prot & PROT_WRITE))
+                {
+                    //write back
+                    sys_writeback(mfile->f->ip, 1, mfile->start, mfile->off, mfile->end-mfile->start); //writei()第2个参数，1为虚拟地址，0为物理地址
+                }
+                uvmunmap(p->pagetable, mfile->start, (mfile->end-mfile->start), 1); //vm.c中
+
+                fileundup(mfile->f);   //undup,f->ref-1
+                //这里是不是可以free一下?
+                mfile->f = 0; //指针清零
+                return 0;
+            }
+            else if (addr <= mfile->start && addr + length < mfile->end && addr + length > mfile->start) //从头开始覆盖，但末尾没有覆盖
+            {
+                //lower cover
+                if ((mfile->flags & MAP_SHARED) && (mfile->prot & PROT_WRITE))
+                {
+                    //write back
+                    sys_writeback(mfile->f->ip, 1, mfile->start, mfile->off, addr + length - mfile->start);
+                }
+                uint64 shiftup = addr + length - mfile->start; //被unmap的部分区间长度
+                uvmunmap(p->pagetable, (uint64)mfile->start, shiftup, 1);
+                mfile->off += shiftup;    //文件没有完全unmap，修改文件的偏移地址到已释放部分
+                mfile->start += shiftup;  //文件起始位置改变
+                //mfile->length -= shiftup; //文件总长度减少
+                return 0;
+            }
+            else if (addr > mfile->start && addr + length >= mfile->end && addr < mfile->end)
+            {
+                //higher cover 前面每映射，后面映射的情况
+                if ((mfile->flags & MAP_SHARED) && (mfile->prot & PROT_WRITE))
+                {
+                    //write back
+                    sys_writeback(mfile->f->ip, 1, addr, mfile->off, mfile->end);
+                }
+                uvmunmap(p->pagetable, addr, mfile->end, 1);
+                //mfile->length -= mfile->start + mfile->length - addr;  //修改文件长度
+                return 0;
+            }
+        }
+    }
     return -1;
 }

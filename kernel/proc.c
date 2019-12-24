@@ -271,7 +271,7 @@ int fork(void)
     }
     np->sz = p->sz;
 
-    np->man = p->man;            //新创建的进程复制旧的进程的virtual memory area
+    np->man = p->man;            //新创建的进程复制旧的进程的virtual memory area,这里要不要用memmove? 这里是结构体赋值,故不用.
     for (i = 0; i < NOFILE; i++) //遍历打开的最大文件数(16)
     {
         if (p->man.mfiles[i].f)          //如果有打开的文件
@@ -337,9 +337,27 @@ void reparent(struct proc *p)
 void exit(int status)
 {
     struct proc *p = myproc();
-
+    struct mfile *mfile;
     if (p == initproc)
         panic("init exiting");
+
+    //exit()是对所有文件做unmap操作，如果文件要求写回则写回
+    for (int i = 0; i < NOFILE; i++)
+    {
+        if (p->man.mfiles[i].f)
+        {
+            mfile = &(p->man.mfiles[i]);
+            if ((mfile->flags & MAP_SHARED) && (mfile->prot & PROT_WRITE))
+            {
+                //write back
+                begin_op(mfile->f->ip->dev);
+                ilock(mfile->f->ip);
+                writei(mfile->f->ip, 1, (uint64)mfile->start, (uint64)mfile->off, (mfile->end - mfile->start));
+                iunlock(mfile->f->ip);
+                end_op(mfile->f->ip->dev);
+            }
+        }
+    }
 
     // Close all open files.
     for (int fd = 0; fd < NOFILE; fd++)

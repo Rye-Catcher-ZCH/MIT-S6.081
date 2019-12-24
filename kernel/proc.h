@@ -99,8 +99,8 @@ ref. https://blog.csdn.net/qq_33611327/article/details/81738195#mmap%E5%9F%BA%E7
 struct mfile
 {
   struct file *f;
-  void *start;
-  void *end;
+  uint64 start;
+  uint64 end;
   int prot;  
   int flags;
   uint64 off;
