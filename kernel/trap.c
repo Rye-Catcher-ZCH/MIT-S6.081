@@ -20,6 +20,7 @@
 //   12..20 -- 9 bits of level-0 index.
 //    0..12 -- 12 bits of byte offset within the page.
 
+/*
 static pte_t *
 walk(pagetable_t pagetable, uint64 va, int alloc)
 {
@@ -39,7 +40,7 @@ walk(pagetable_t pagetable, uint64 va, int alloc)
   }
   return &pagetable[PX(0, va)];
 }
-
+*/
 
 struct spinlock tickslock;
 uint ticks;
@@ -115,7 +116,6 @@ void usertrap(void)
         //找到发生缺页错误的虚拟地址，调用r_stval()函数，定义在riscv.h中
         //stval=0x0000000000004008，虚拟地址为4*16 = 64位
         uint64 fault_vaddr = (uint64)r_stval();
-
         //ref. hint4:使用PGROUNDDOWN(vaddr)将有问题的虚拟地址向下舍入到页面边界(也是一个虚拟地址)。
         //PGROUNDDOWN()定义在riscv.h中
         uint64 fault_page = PGROUNDDOWN(fault_vaddr);
@@ -153,9 +153,9 @@ void usertrap(void)
         //Steal code from uvmalloc() in vm.c, which is what sbrk() calls (via growproc()). You'll need to call kalloc() and mappages().
         //walk定义在上面，在页表p->pagetable中返回与虚拟地址fault_vaddr对应的PTE地址。alloc=1，创建任何必需的页表页。
         //对这里进行了修改，取消了强转uint64*
-        pte_t *pte = walk(p->pagetable, fault_vaddr, 1); //递归查找页表项
-        if (!(*pte & PTE_V))                             //如果页表页无效，没有被映射，防止remap
-        {
+        //pte_t *pte = walk(p->pagetable, fault_vaddr, 1); //递归查找页表项
+        //if (!(*pte & PTE_V))                             //如果页表页无效，没有被映射，防止remap
+        //{
             mem = kalloc(); //分配一个页的内存空间
             //如果内存分配失败，退出
             if (!mem)
@@ -177,7 +177,7 @@ void usertrap(void)
                 p->killed = 1;
                 exit(-1);
             }
-        }
+        //}
     }
     else if ((which_dev = devintr()) != 0)
     {
