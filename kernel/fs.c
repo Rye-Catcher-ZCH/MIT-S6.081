@@ -440,8 +440,7 @@ bmap(struct inode *ip, uint bn) //传入文件inode和返回的块号bn
     }
 
     bn -= NINDIRECT; //eg:bn = 1000 - 256 - 11 < 65536
-    if (bn < NININDIRECT)
-    {
+    if (bn < NININDIRECT){
         uint index_table_num = 0;
         uint index_item_num = 0;
         //首先找到第bn个数据块属于哪个间接索引表
